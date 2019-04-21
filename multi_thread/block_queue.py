@@ -5,7 +5,7 @@ import sys, time, threading, abc
 from optparse import OptionParser
 import Queue
 import logging
-import traceback
+import signal
 
 class POISON_PILL:
     pass
@@ -92,11 +92,26 @@ def has_live_threads(threads):
 def main():
     options = parse_options()
     logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
+    threads = []
 
     work_queue = Queue.LifoQueue()
     output_queue = Queue.LifoQueue()
 
-    threads = []
+    def kill_all():
+        logging.info('Sending kill to threads...')
+        for t in threads:
+            logging.info('Sending kill to thread %s', t.name)
+            t.kill_flag = True
+            work_queue.put(POISON_PILL)
+
+    def handler(signum, frame):
+        logging.info('Signal handler called with signal %d', signum)
+        kill_all()
+
+    # Set the signal handler and a 5-second alarm
+    signal.signal(signal.SIGTERM, handler)
+    # signal.alarm(5)
+
     #q = None
     try:
         threads.append(Producer("[receiver 0]", work_queue))
@@ -119,11 +134,8 @@ def main():
             [t.join(1) for t in threads if t is not None and t.isAlive()]
         except KeyboardInterrupt:
             # Ctrl-C handling and send kill to threads
-            logging.info('Sending kill to threads...')
-            for t in threads:
-                logging.info('Sending kill to thread %s', t.name)
-                t.kill_flag = True
-                work_queue.put(POISON_PILL)
+            kill_all()
+
     output_queue.join() # wait until all of the products are done
     print "Exited"
 
