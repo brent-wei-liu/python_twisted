@@ -9,17 +9,16 @@ class Thread(threading.Thread):
     def run(self):
         global count
         caller = self.getName()
-        while count < 5:
+        while True:
             with lock:
-                if count < 5:
-                    print "%s: Acquired the lock: %d" % (
-                    caller, count)
-                    count += 1
-                    time.sleep(1)
+                if count >= 5: break
+                print "%s: Acquired the lock: %d" % (caller, count)
+                count += 1
+            time.sleep(1)
 
 count = 0
 lock = threading.Lock()
 
-Thread('hello').start()
-Thread('bye').start()
+Thread('Thread-1').start()
+Thread('Thread-2').start()
 
