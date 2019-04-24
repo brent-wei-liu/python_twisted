@@ -17,7 +17,7 @@ def put():
         q.appendleft(i)
         i += 1
         V(fill_count)
-        time.sleep(1)
+        time.sleep(0.5)
 
     P(empty_count)
     q.appendleft(POISON_PILL)
@@ -32,6 +32,7 @@ def get():
         x = q.pop()
         if x == POISON_PILL: break
         print 'Consuming: ', x
+        time.sleep(3)
         V(empty_count)
     print 'get done ...\n'
 
@@ -42,7 +43,7 @@ def V(sem):
     sem.release()
 
 # Buffer size
-N = 10
+N = 3
 q = deque()
 fill_count = threading.Semaphore(0)
 empty_count = threading.Semaphore(N)
