@@ -7,9 +7,6 @@ import Queue
 import logging
 import signal
 
-class POISON_PILL:
-    pass
-
 def parse_options():
     parser = OptionParser()
     parser.add_option("-t", action="store", type="int",
@@ -32,7 +29,7 @@ class Producer(threading.Thread):
                 logging.info("%s is active", self.name)
                 self.q.put(i, timeout=1)
                 i += 1
-                time.sleep(0.5)
+                time.sleep(0.1)
             except Queue.Full as e:
                 logging.info("[%s] queue is full.", self.name)
 
@@ -47,14 +44,13 @@ class Worker(threading.Thread):
         self.downStreamQ = downStreamQ
 
     def run(self):
-        while not self.kill_flag:
+        while not self.kill_flag or not self.q.empty():
             try:
                 logging.info("%s is active", self.name)
                 product = self.q.get(1, timeout=1)
-                if product == POISON_PILL: break
                 logging.info("Consuming: " + str(product))
                 self.downStreamQ.put(product, timeout=1)
-                #self.q.task_done() tell q.join() something is done
+                self.q.task_done() #tell q.join() something is done
             except Queue.Empty as e:
                 logging.info("[%s] queue is empty.", self.name)
             except Queue.Full as e:
@@ -72,13 +68,14 @@ class Serializer(threading.Thread):
         self.file = open(filename, 'w')
 
     def run(self):
-        while not self.kill_flag:
+        while not self.kill_flag or not self.q.empty():
             try:
                 logging.info("%s is active", self.name)
                 product = self.q.get(timeout=1)
                 logging.info("Writing : " + str(product))
                 self.file.write('%d\n'%product)
                 self.q.task_done()
+                time.sleep(0.2)
             except Queue.Empty as e:
                 logging.info("[%s] queue is empty.", self.name)
         logging.info('Stop thread %s', self.name)
@@ -91,18 +88,19 @@ def has_live_threads(threads):
 
 def main():
     options = parse_options()
-    logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
+    logging.basicConfig(stream=sys.stdout,
+                        level=logging.DEBUG,
+                        format="%(threadName)s\t:%(message)s")
     threads = []
 
-    work_queue = Queue.LifoQueue()
-    output_queue = Queue.LifoQueue()
+    work_queue = Queue.Queue()
+    output_queue = Queue.Queue()
 
     def kill_all():
         logging.info('Sending kill to threads...')
         for t in threads:
             logging.info('Sending kill to thread %s', t.name)
             t.kill_flag = True
-            work_queue.put(POISON_PILL)
 
     def handler(signum, frame):
         logging.info('Signal handler called with signal %d', signum)
@@ -112,7 +110,6 @@ def main():
     signal.signal(signal.SIGTERM, handler)
     # signal.alarm(5)
 
-    #q = None
     try:
         threads.append(Producer("[receiver 0]", work_queue))
         threads.append(Serializer("[serializer 0]",
@@ -131,13 +128,19 @@ def main():
     while has_live_threads(threads):
         try:
             # synchronization timeout of threads kill
-            [t.join(1) for t in threads if t is not None and t.isAlive()]
+            [t.join(timeout = 1) for t in threads if t is not None and t.isAlive()]
+            logging.info('Wake up!')
         except KeyboardInterrupt:
             # Ctrl-C handling and send kill to threads
             kill_all()
 
+    logging.info('output_queue.qsize() = %d', output_queue.qsize())
     output_queue.join() # wait until all of the products are done
-    print "Exited"
+
+    logging.info('work_queue.qsize() = %d', work_queue.qsize())
+    work_queue.join() # wait until all of the products are done
+
+    logging.info("Exited")
 
 
 if __name__ == '__main__':
